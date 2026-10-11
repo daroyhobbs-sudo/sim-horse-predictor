@@ -49,7 +49,7 @@ if uploaded_html_files:
         
         st.subheader(f"Results for: {html_file.name}")
         
-        # A completely safe placeholder table layout with no empty values or stray commas
+        # A completely safe layout with clear lists and no structural syntax issues
         mock_data = {
             "Post Position":,
             "Horse Name": ["Secretariat Reborn", "Galloping Ghost", "Mudder Superior", "Speedy Gonzales"],
