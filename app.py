@@ -5,23 +5,40 @@ import json
 # Set wide layout for dense betting grids
 st.set_page_config(layout="wide", page_title="SIM Horse Predictor")
 
-st.title("🏇 SIM Horse Racing High-Pace Calculator")
+st.title("🏇 SIM Horse Racing High-Pace Value Predictor")
 
-# --- SECTION 1: SIDEBAR DATA STORAGE ---
+# Helper function to convert Morning Line text odds (e.g., "7-2", "1-5") into implied probability percent
+def parse_ml_odds(odds_str):
+    try:
+        odds_str = str(odds_str).strip()
+        if "-" in odds_str:
+            num, den = odds_str.split("-")
+            n = float(num)
+            d = float(den)
+            return (d / (n + d)) * 100
+        elif "/" in odds_str:
+            num, den = odds_str.split("/")
+            n = float(num)
+            d = float(den)
+            return (d / (n + d)) * 100
+        return 0.0
+    except:
+        return 0.0
+
+# --- SECTION 1: SIDEBAR CONTROLS ---
 st.sidebar.header("📁 Backup & History Dataset")
-
-# Multi-file or single-file backup loader
 uploaded_backup = st.sidebar.file_uploader("Upload your .json backup file", type=["json"])
+
+st.sidebar.header("⚙️ Model Weight Tuning")
+st.sidebar.write("Customize how much importance to give each factor:")
+peak_weight = st.sidebar.slider("Peak Speed Rating Weight", 0.0, 1.0, 0.60, 0.05)
+life_weight = st.sidebar.slider("Lifetime Performance Weight", 0.0, 1.0, 0.40, 0.05)
 
 # Keep track of history across app refreshes
 if uploaded_backup:
     try:
         raw_data = json.load(uploaded_backup)
-        
-        # Extract the list of races from the JSON structure
         races_list = raw_data.get("races", [])
-        
-        # Flatten the data so Python can run fast math on it
         all_past_horses = []
         valid_race_count = 0
         
@@ -30,13 +47,10 @@ if uploaded_backup:
             dist = r.get("dist", "0")
             surf = r.get("surf", "Unknown")
             cond = r.get("cond", "Unknown")
-            
-            # Map out who actually won the race safely
             winners = r.get("result", [])
             
-            # Safe check: Only process if results actually exist and have entries
             if winners and isinstance(winners, list) and len(winners) > 0:
-                actual_winner_pp = winners[0] # The first entry in the result list is the winner
+                actual_winner_pp = winners[0] # Track the first placing horse as winner
                 valid_race_count += 1
                 
                 for h in r.get("horses", []):
@@ -54,9 +68,9 @@ if uploaded_backup:
         
         if all_past_horses:
             history_df = pd.DataFrame(all_past_horses)
-            st.sidebar.success(f"✅ Loaded {valid_race_count} completed races from dataset!")
+            st.sidebar.success(f"✅ Loaded {valid_race_count} completed races from database!")
         else:
-            st.sidebar.warning("⚠️ JSON loaded, but found 0 races with official finish results.")
+            st.sidebar.warning("⚠️ JSON loaded, but found 0 valid completed races.")
             history_df = pd.DataFrame()
             
     except Exception as e:
@@ -68,8 +82,8 @@ else:
 
 
 # --- SECTION 2: LIVE CARD PROCESSING ---
-st.header("⚡ Fast-Batch Race Processing")
-st.write("Drag and drop your upcoming SIM .json race cards below for instant overlay alerts.")
+st.header("⚡ Live Value Betting Dashboard")
+st.write("Upload your unrun race cards to find odds discrepancies instantly.")
 
 uploaded_cards = st.file_uploader(
     "Upload Upcoming SIM Race Cards", 
@@ -81,7 +95,6 @@ if uploaded_cards:
     for card_file in uploaded_cards:
         try:
             card_data = json.load(card_file)
-            # Handle files that contain multiple races or single races
             incoming_races = card_data.get("races", [card_data])
             
             for race in incoming_races:
@@ -89,7 +102,7 @@ if uploaded_cards:
                 r_dist = str(race.get("dist", "0"))
                 r_surf = race.get("surf", "Unknown")
                 
-                st.subheader(f"📊 Predictions for: {race_name} ({r_dist}F, {r_surf})")
+                st.subheader(f"🏇 Predictions for: {race_name} ({r_dist}F, {r_surf})")
                 
                 calc_rows = []
                 for horse in race.get("horses", []):
@@ -99,62 +112,62 @@ if uploaded_cards:
                     peak_speed = pd.to_numeric(horse.get("peak"), errors="coerce")
                     lifetime_speed = pd.to_numeric(horse.get("lifeFig"), errors="coerce")
                     
-                    # Ensure numbers default to 0 if missing
                     peak_speed = 0 if pd.isna(peak_speed) else peak_speed
                     lifetime_speed = 0 if pd.isna(lifetime_speed) else lifetime_speed
                     
-                    # --- AUTOMATED ALGORITHMIC BRAIN ---
+                    # Convert track morning line string odds into true implied percentage
+                    ml_implied_pct = parse_ml_odds(ml_odds)
+                    
+                    # --- DYNAMIC CALCULATION ALGORITHM ---
                     score = 0
                     if not history_df.empty:
-                        # Match historical distance and surface parameters
                         similar_races = history_df[(history_df["dist"].astype(str) == r_dist) & (history_df["surf"] == r_surf)]
                         
                         if not similar_races.empty:
-                            # Calculate exactly how strong peak speed is on this surface/distance based on past winners
                             avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
                             avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
                             
-                            # Safely fallback to 0 if means are empty
                             avg_peak_winner = 0 if pd.isna(avg_peak_winner) else avg_peak_winner
                             avg_life_winner = 0 if pd.isna(avg_life_winner) else avg_life_winner
                             
-                            # Score current entry against your real historical database winners
-                            if peak_speed >= avg_peak_winner and avg_peak_winner > 0: score += 60
-                            if lifetime_speed >= avg_life_winner and avg_life_winner > 0: score += 40
+                            if peak_speed >= avg_peak_winner and avg_peak_winner > 0: score += (60 * peak_weight)
+                            if lifetime_speed >= avg_life_winner and avg_life_winner > 0: score += (40 * life_weight)
                         else:
-                            score = (peak_speed * 0.6) + (lifetime_speed * 0.4)
+                            score = (peak_speed * peak_weight) + (lifetime_speed * life_weight)
                     else:
-                        score = (peak_speed * 0.6) + (lifetime_speed * 0.4)
+                        score = (peak_speed * peak_weight) + (lifetime_speed * life_weight)
                         
                     calc_rows.append({
                         "PP": pp,
                         "Horse": h_name,
-                        "ML Odds": ml_odds,
+                        "Morning Line": ml_odds,
+                        "ML Implied %": round(ml_implied_pct, 1),
                         "Peak Rating": peak_speed,
                         "Life Fig": lifetime_speed,
                         "Raw Score": round(score, 1)
                     })
                 
-                # Turn calculations into an interactive table
                 race_results_df = pd.DataFrame(calc_rows)
                 
-                # Compute true percentage odds distribution across the field
+                # Compute your custom Model Win %
                 total_score = race_results_df["Raw Score"].sum()
                 if total_score > 0:
-                    race_results_df["Win %"] = ((race_results_df["Raw Score"] / total_score) * 100).round(1)
+                    race_results_df["Model Win %"] = ((race_results_df["Raw Score"] / total_score) * 100).round(1)
                 else:
-                    race_results_df["Win %"] = 0.0
-                    
-                # Rank fields highest score first
-                race_results_df = race_results_df.sort_values(by="Win %", ascending=False)
+                    race_results_df["Model Win %"] = 0.0
                 
-                # Call out the high-probability value targets
-                top_pct = race_results_df["Win %"].max()
-                race_results_df["Bet Signal"] = race_results_df["Win %"].apply(
-                    lambda x: "🔥 VALUE BET" if x == top_pct and x > 0 else "PASS"
+                # Calculate the exact edge disparity (Your Win % minus Track Implied %)
+                race_results_df["Edge Disparity"] = (race_results_df["Model Win %"] - race_results_df["ML Implied %"]).round(1)
+                
+                # Rank fields highest edge advantage first
+                race_results_df = race_results_df.sort_values(by="Edge Disparity", ascending=False)
+                
+                # Flag the optimal betting signals
+                race_results_df["Bet Signal"] = race_results_df.apply(
+                    lambda row: "🔥 VALUE OVERLAY" if row["Edge Disparity"] > 5.0 and row["Model Win %"] > 15.0 else "PASS", axis=1
                 )
                 
-                # Render table inside the web browser view
+                # Render clean results view
                 st.dataframe(race_results_df, use_container_width=True, hide_index=True)
                 
         except Exception as card_error:
