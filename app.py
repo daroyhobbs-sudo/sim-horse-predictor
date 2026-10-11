@@ -63,7 +63,7 @@ pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=3
 if pasted_text:
     try:
         # 1. Parse Distance & Surface using flexible text scanning
-        race_dist = "7" 
+        race_dist = "5" 
         race_surf = "Dirt" 
         
         dist_match = re.search(r"(\d+)\s*furlongs", pasted_text, re.IGNORECASE)
@@ -77,46 +77,52 @@ if pasted_text:
             
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Extract Horse Data Blocks via direct 'Life' signature lines
-        # This looks for lines starting with a dash and captures the horse blocks cleanly
-        horse_matches = re.finditer(r"-\s*([^\n\(]+)(?:\([A-Z]{2}\))?[\s\S]*?Life\s+\d+:\s*[^\n]+", pasted_text, re.IGNORECASE)
+        # 2. Extract Horse Data Blocks via direct block separation
+        # Chop the text whenever we hit a horse indicator dash line
+        chunks = pasted_text.split("\n- ")
         
         calc_rows = []
         post_position_counter = 1
-        seen_horses = set()
         
-        for match in horse_matches:
-            full_match_text = match.group(0)
-            
-            # Extract and clean the horse name safely line-by-line
-            horse_raw_name = match.group(1).replace("**", "").replace("-", "").strip()
-            horse_first_line = horse_raw_name.split("\n")[0]
-            horse_clean_name = horse_first_line.split("\t")[0].strip()
-            
-            if horse_clean_name in seen_horses or len(horse_clean_name) > 30 or "Broke" in horse_clean_name or not horse_clean_name:
+        for chunk in chunks:
+            if "Life " not in chunk:
                 continue
                 
-            # Extract Peak and Life Figures out of the matched Life text block line
-            life_line_search = re.search(r"Life\s+\d+:\s*([^\n]+)", full_match_text, re.IGNORECASE)
+            chunk_lines = [line.strip() for line in chunk.split("\n") if line.strip()]
+            if not chunk_lines:
+                continue
+                
+            # The first entry line of the block is always the horse name
+            raw_name = chunk_lines[0].replace("- ", "").replace("**", "")
+            clean_name = re.sub(r"\(.*?\)", "", raw_name).strip()
             
+            # Extract Peak Rating, Life Figures, and check for workout clock strings
             peak_val = 0
             life_val = 0
+            workout_seconds = []
             
-            if life_line_search:
-                metrics_text = life_line_search.group(1).replace(",", "").replace("$", "")
-                numbers = re.findall(r"\d+", metrics_text)
-                if len(numbers) >= 2:
-                    peak_val = int(numbers[-2])
-                    life_val = int(numbers[-1])
-            
-            if peak_val > 0 or life_val > 0:
-                seen_horses.add(horse_clean_name)
+            for line in chunk_lines:
+                if "Life " in line:
+                    metrics_line = line.replace(",", "").replace("$", "")
+                    numbers = re.findall(r"\d+", metrics_line)
+                    if len(numbers) >= 5:
+                        peak_val = int(numbers[-2])
+                        life_val = int(numbers[-1])
                 
-                # --- MODEL PREDICTION LOGIC ---
-                score = 0
+                # Scan lines for workout timestamps like 0:23.23 or 1:29.22
+                clocks = re.findall(r"\d+:\d{2}\.\d{2}", line)
+                for clock in clocks:
+                    minutes, seconds = clock.split(":")
+                    total_secs = (int(minutes) * 60) + float(seconds)
+                    workout_seconds.append(total_secs)
+            
+            # --- MODEL SCORE ENGINE ---
+            score = 0
+            
+            # Strategy A: If the horse has real racing history, grade his speed figures
+            if peak_val > 0 or life_val > 0:
                 if not history_df.empty:
                     similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
-                    
                     if not similar_races.empty:
                         avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
                         avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
@@ -130,15 +136,25 @@ if pasted_text:
                         score = (peak_val * peak_weight) + (life_val * life_weight)
                 else:
                     score = (peak_val * peak_weight) + (life_val * life_weight)
+            
+            # Strategy B: If it's a raw unrun 2-year-old maiden, calculate speed via workouts
+            else:
+                if workout_seconds:
+                    # Capture his absolute fastest workout time as a proxy baseline 
+                    fastest_work = min(workout_seconds)
+                    # Convert raw workout seconds into a standardized rating index scale out of 100
+                    score = max(10, 100 - (fastest_work * 1.5)) 
+                else:
+                    score = 25.0  # Safe default middle baseline index for unknown layout values
                     
-                calc_rows.append({
-                    "PP": post_position_counter,
-                    "Horse Name": horse_clean_name,
-                    "Peak Rating": peak_val,
-                    "Life Fig": life_val,
-                    "Model Score": round(score, 1)
-                })
-                post_position_counter += 1
+            calc_rows.append({
+                "PP": post_position_counter,
+                "Horse Name": clean_name,
+                "Peak Rating": peak_val if peak_val > 0 else "Unrated (Maiden)",
+                "Life Fig": life_val if life_val > 0 else "Unrated",
+                "Model Score": round(score, 1)
+            })
+            post_position_counter += 1
                 
         if calc_rows:
             race_results_df = pd.DataFrame(calc_rows)
