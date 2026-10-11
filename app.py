@@ -6,13 +6,14 @@ import re
 # Set wide layout for dense betting grids
 st.set_page_config(layout="wide", page_title="SIM Horse Predictor")
 
-st.title("🏇 SIM Horse Racing Indestructible Predictor")
+st.title("🏇 SIM Horse Racing Fast-Paste Predictor")
 
 # --- SECTION 1: SIDEBAR DATA STORAGE & TUNING ---
 st.sidebar.header("📁 Backup & History Dataset")
 uploaded_backup = st.sidebar.file_uploader("Upload your .json backup file", type=["json"])
 
 st.sidebar.header("⚙️ Model Weight Tuning")
+st.sidebar.write("Adjust calculations weighting weights manually:")
 peak_weight = st.sidebar.slider("Peak Speed Rating Weight", 0.0, 1.0, 0.60, 0.05)
 life_weight = st.sidebar.slider("Lifetime Performance Weight", 0.0, 1.0, 0.40, 0.05)
 
@@ -53,29 +54,34 @@ if uploaded_backup:
         st.sidebar.error(f"Error reading JSON dataset: {e}")
 
 
-# --- CORE PROCESSING FUNCTION ---
-def process_raw_text(text_content):
+# --- SECTION 2: INSTANT PASTE BOX ENGINE ---
+st.header("⚡ Instant-Paste Race Processing")
+st.write("Go to your SIM race card page, select all text, copy it, and paste it in the box below.")
+
+pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=300, placeholder="Paste data here...")
+
+if pasted_text:
     try:
-        # 1. Pre-clean the text: forcefully remove markdown bold symbols so lines start with '-' clean
-        text_content = text_content.replace("**", "")
+        # Clean markdown bold markers out if they exist
+        pasted_text = pasted_text.replace("**", "")
         
-        # Parse Distance & Surface using flexible keyword scanning
+        # 1. Parse Distance & Surface using flexible text scanning
         race_dist = "7" 
         race_surf = "Dirt" 
         
-        dist_match = re.search(r"(\d+)\s*furlongs", text_content, re.IGNORECASE)
+        dist_match = re.search(r"(\d+)\s*furlongs", pasted_text, re.IGNORECASE)
         if dist_match:
             race_dist = dist_match.group(1)
             
-        if "turf" in text_content.lower():
+        if "turf" in pasted_text.lower():
             race_surf = "Turf"
-        elif "all weather" in text_content.lower() or "aw" in text_content.lower():
+        elif "all weather" in pasted_text.lower() or "aw" in pasted_text.lower():
             race_surf = "AW"
             
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Split text content cleanly into lines
-        lines = text_content.split("\n")
+        # 2. Sequential line reader loop
+        lines = pasted_text.split("\n")
         calc_rows = []
         current_horse = None
         post_position_counter = 1
@@ -83,14 +89,15 @@ def process_raw_text(text_content):
         for line in lines:
             line_str = line.strip()
             
-            # Match lines starting with a dash that contain parenthetical state markers
+            # Identify horse names: lines starting with '-' that contain parentheses for breeding states
             if line_str.startswith("-") and "(" in line_str and ")" in line_str:
                 name_part = line_str.replace("-", "").strip()
                 current_horse = re.sub(r"\(.*?\)", "", name_part).strip()
                 continue
                 
-            # Pull ratings whenever hitting a record row containing the word 'Life'
+            # Grab performance variables whenever we hit a line containing 'Life '
             if current_horse and "Life " in line_str:
+                # Clean currency punctuation symbols out to keep regex clean
                 clean_line = line_str.replace(",", "").replace("$", "")
                 numbers = re.findall(r"\d+", clean_line)
                 
@@ -129,7 +136,7 @@ def process_raw_text(text_content):
                     "Model Score": round(score, 1)
                 })
                 post_position_counter += 1
-                current_horse = None 
+                current_horse = None # Reset state engine token
                 
         if calc_rows:
             race_results_df = pd.DataFrame(calc_rows)
@@ -148,34 +155,9 @@ def process_raw_text(text_content):
             
             st.dataframe(race_results_df, use_container_width=True, hide_index=True)
         else:
-            st.warning("Could not identify horse blocks. Make sure your input contains the performance lines starting with '- Name' and 'Life'.")
+            st.warning("Could not identify horse blocks. Ensure you copy the complete page text starting from the race conditions header.")
             
     except Exception as parse_err:
         st.error(f"Error parsing race calculation grid: {parse_err}")
-
-
-# --- SECTION 2: INPUT SELECTION ---
-st.header("⚡ Live Race Entry Point")
-input_method = st.radio("Choose how you want to input upcoming SIM race cards:", ["Option 1: Paste Raw Page Text", "Option 2: Upload HTML File(s)"])
-
-if input_method == "Option 1: Paste Raw Page Text":
-    pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=300, placeholder="Select all text on the SIM card, copy, and paste here...")
-    if pasted_text:
-        process_raw_text(pasted_text)
-
 else:
-    uploaded_files = st.file_uploader("Upload SIM Race HTML files", accept_multiple_files=True, type=["html", "htm", "txt"])
-    if uploaded_files:
-        for file in uploaded_files:
-            file_content = file.read().decode("utf-8", errors="ignore")
-            
-            # --- AGGRESSIVE CLEANING STRATEGY FOR HTML FILES ---
-            file_content = re.sub(r"<script[^>]*>([\s\S]*?)</script>", " ", file_content, flags=re.IGNORECASE)
-            file_content = re.sub(r"<style[^>]*>([\s\S]*?)</style>", " ", file_content, flags=re.IGNORECASE)
-            file_content = re.sub(r"<(div|p|tr|br|li)[^>]*>", "\n", file_content, flags=re.IGNORECASE)
-            
-            clean_text = re.sub(r"<[^>]*>", " ", file_content)
-            clean_text = re.sub(r"&nbsp;", " ", clean_text, flags=re.IGNORECASE)
-            clean_text = re.sub(r"[ \t]+", " ", clean_text)
-            
-            process_raw_text(clean_text)
+    st.info("Waiting for data entry. Paste your copied SIM race performance text block above.")
