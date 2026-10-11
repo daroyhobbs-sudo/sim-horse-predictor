@@ -13,6 +13,7 @@ st.sidebar.header("📁 Backup & History Dataset")
 uploaded_backup = st.sidebar.file_uploader("Upload your .json backup file", type=["json"])
 
 st.sidebar.header("⚙️ Model Weight Tuning")
+st.sidebar.write("Adjust calculation weights manually:")
 peak_weight = st.sidebar.slider("Peak Speed Rating Weight", 0.0, 1.0, 0.60, 0.05)
 life_weight = st.sidebar.slider("Lifetime Performance Weight", 0.0, 1.0, 0.40, 0.05)
 
@@ -77,7 +78,7 @@ if pasted_text:
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
         # 2. Extract Horse Data Blocks via direct 'Life' signature lines
-        # This matches the exact name line block text sitting right above the text "Life X: "
+        # This looks for lines starting with a dash and captures the horse blocks cleanly
         horse_matches = re.finditer(r"-\s*([^\n\(]+)(?:\([A-Z]{2}\))?[\s\S]*?Life\s+\d+:\s*[^\n]+", pasted_text, re.IGNORECASE)
         
         calc_rows = []
@@ -85,14 +86,14 @@ if pasted_text:
         seen_horses = set()
         
         for match in horse_matches:
-            # Re-read full line block matching parameters carefully
             full_match_text = match.group(0)
+            
+            # Extract and clean the horse name safely line-by-line
             horse_raw_name = match.group(1).replace("**", "").replace("-", "").strip()
+            horse_first_line = horse_raw_name.split("\n")[0]
+            horse_clean_name = horse_first_line.split("\t")[0].strip()
             
-            # Clean up residual tab or line spacing clutter
-            horse_clean_name = horse_raw_name.split("\n").split("\t").strip()
-            
-            if horse_clean_name in seen_horses or len(horse_clean_name) > 30 or "Broke" in horse_clean_name:
+            if horse_clean_name in seen_horses or len(horse_clean_name) > 30 or "Broke" in horse_clean_name or not horse_clean_name:
                 continue
                 
             # Extract Peak and Life Figures out of the matched Life text block line
