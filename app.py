@@ -32,7 +32,7 @@ if uploaded_backup:
             winners = r.get("result", [])
             
             if winners and isinstance(winners, list) and len(winners) > 0:
-                actual_winner_pp = winners
+                actual_winner_pp = winners[0]
                 valid_race_count += 1
                 
                 for h in r.get("horses", []):
@@ -56,103 +56,101 @@ if uploaded_backup:
 # --- CORE PROCESSING FUNCTION ---
 def process_raw_text(text_content, source_name="Pasted Card"):
     try:
-        # 1. Parse Race General Details using Regular Expressions
-        race_track = "Unknown Track"
-        race_dist = "0"
-        race_surf = "Unknown Surface"
+        # 1. Parse Distance & Surface with maximum flexibility
+        race_dist = "7" # Default fallback based on your card
+        race_surf = "Dirt" # Default fallback
         
-        # Look for pattern like: "Race 34 - 7 furlongs. Dirt."
-        race_match = re.search(r"Race\s+\d+\s+-\s+(\d+)\s+furlongs\.\s+(\w+)\.", text_content)
-        if race_match:
-            race_dist = race_match.group(1)
-            race_surf = race_match.group(2)
+        dist_match = re.search(r"(\d+)\s*furlongs", text_content, re.IGNORECASE)
+        if dist_match:
+            race_dist = dist_match.group(1)
             
-        # Look for track header like: "Last Resort Park (AK)"
-        track_match = re.search(r"Day-\d+\s+\([\w:]+\)\s+([A-Za-z\s]+)\(", text_content)
-        if track_match:
-            race_track = track_match.group(1).strip()
+        if "turf" in text_content.lower():
+            race_surf = "Turf"
+        elif "all weather" in text_content.lower() or "aw" in text_content.lower():
+            race_surf = "AW"
             
-        st.subheader(f"📊 Live Analysis: {race_track} ({race_dist} Furlongs, {race_surf}) - Source: {source_name}")
+        st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Chunk text block by individual horse performance records
-        # Horse records always start with a bold style bullet delimiter: "- Horse Name (STATE)"
-        horse_blocks = re.split(r"\n\s*-\s*", text_content)
+        # 2. Extract Horses using aggressive string matching
+        lines = [line.strip() for line in text_content.split("\n") if line.strip()]
         
         calc_rows = []
+        current_horse = None
         post_position_counter = 1
         
-        for block in horse_blocks:
-            if "Life " not in block or "Dirt:" not in block:
+        for i, line in enumerate(lines):
+            # Look for the horse header separator: a line starting with a dash or holding name clues
+            if line.startswith("- ") or (line.startswith("**-") and ")" in line):
+                # Clean up the name string
+                current_horse = line.replace("-", "").replace("**", "").split("(")[0].strip()
                 continue
                 
-            lines = [line.strip() for line in block.split("\n") if line.strip()]
-            if not lines:
-                continue
+            # If we have an active horse block, search for the 'Life' metric line
+            if current_horse and (line.startswith("Life ") or line.startswith("Life:")):
+                # Find all integers inside this metric line using regex
+                # e.g., "Life 7: 1-3-2 $38,200 73 30" -> will extract 73 and 30 at the end
+                numbers = re.findall(r"\d+", line.replace(",", "")) # remove commas from currency
                 
-            header_line = lines[0]
-            name_clean = re.sub(r"\(.*?\)", "", header_line).strip() # Remove state initials
-            
-            # Extract Peak Rating and Life Figures out of the 'Life' metric line
-            peak_val = 0
-            life_val = 0
-            for line in lines:
-                if line.startswith("Life "):
-                    metrics = line.split()
-                    if len(metrics) >= 5:
-                        peak_val = pd.to_numeric(metrics[-2], errors="coerce")
-                        life_val = pd.to_numeric(metrics[-1], errors="coerce")
-                    break
-            
-            peak_val = 0 if pd.isna(peak_val) else peak_val
-            life_val = 0 if pd.isna(life_val) else life_val
-            
-            # --- DYNAMIC HISTORICAL MODEL CALCULATIONS ---
-            score = 0
-            if not history_df.empty:
-                similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
+                if len(numbers) >= 5:
+                    peak_val = int(numbers[-2])
+                    life_val = int(numbers[-1])
+                else:
+                    peak_val = 0
+                    life_val = 0
                 
-                if not similar_races.empty:
-                    avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
-                    avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
+                # --- AUTOMATED MODEL PREDICTION LOGIC ---
+                score = 0
+                if not history_df.empty:
+                    similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
                     
-                    avg_peak_winner = 0 if pd.isna(avg_peak_winner) else avg_peak_winner
-                    avg_life_winner = 0 if pd.isna(avg_life_winner) else avg_life_winner
-                    
-                    if peak_val >= avg_peak_winner and avg_peak_winner > 0: score += (60 * peak_weight)
-                    if life_val >= avg_life_winner and avg_life_winner > 0: score += (40 * life_weight)
+                    if not similar_races.empty:
+                        avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
+                        avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
+                        
+                        avg_peak_winner = 0 if pd.isna(avg_peak_winner) else avg_peak_winner
+                        avg_life_winner = 0 if pd.isna(avg_life_winner) else avg_life_winner
+                        
+                        if peak_val >= avg_peak_winner and avg_peak_winner > 0: score += (60 * peak_weight)
+                        if life_val >= avg_life_winner and avg_life_winner > 0: score += (40 * life_weight)
+                    else:
+                        score = (peak_val * peak_weight) + (life_val * life_weight)
                 else:
                     score = (peak_val * peak_weight) + (life_val * life_weight)
-            else:
-                score = (peak_val * peak_weight) + (life_val * life_weight)
+                    
+                calc_rows.append({
+                    "PP": post_position_counter,
+                    "Horse Name": current_horse,
+                    "Peak Rating": peak_val,
+                    "Life Fig": life_val,
+                    "Model Score": round(score, 1)
+                })
+                post_position_counter += 1
+                current_horse = None # Reset for next horse entry
                 
-            calc_rows.append({
-                "PP": post_position_counter,
-                "Horse Name": name_clean,
-                "Peak Rating": peak_val,
-                "Life Fig": life_val,
-                "Raw Rating Score": round(score, 1)
-            })
-            post_position_counter += 1
-            
         if calc_rows:
             race_results_df = pd.DataFrame(calc_rows)
-            total_score = race_results_df["Raw Rating Score"].sum()
+            total_score = race_results_df["Model Score"].sum()
+            
             if total_score > 0:
-                race_results_df["Model Probability %"] = ((race_results_df["Raw Rating Score"] / total_score) * 100).round(1)
+                race_results_df["Win %"] = ((race_results_df["Model Score"] / total_score) * 100).round(1)
             else:
-                race_results_df["Model Probability %"] = 0.0
+                race_results_df["Win %"] = 0.0
                 
-            race_results_df = race_results_df.sort_values(by="Model Probability %", ascending=False)
-            top_prob = race_results_df["Model Probability %"].max()
-            race_results_df["Bet Signal"] = race_results_df["Model Probability %"].apply(
+            # Rank highest win percentage first
+            race_results_df = race_results_df.sort_values(by="Win %", ascending=False)
+            
+            # Label value bet contenders
+            top_prob = race_results_df["Win %"].max()
+            race_results_df["Bet Signal"] = race_results_df["Win %"].apply(
                 lambda x: "🔥 VALUE CONTENDER" if x == top_prob and x > 0 else "PASS"
             )
+            
             st.dataframe(race_results_df, use_container_width=True, hide_index=True)
         else:
-            st.warning(f"Could not identify standard SIM horse rows in {source_name}. Check the copy formatting.")
+            st.warning("Could not identify horse blocks. Make sure you select and copy the whole horse details on the card page.")
             
     except Exception as parse_err:
-        st.error(f"Error parsing race card: {parse_err}")
+        st.error(f"Error parsing race calculation grid: {parse_err}")
 
 
 # --- SECTION 2: INPUT SELECTION ---
@@ -160,7 +158,7 @@ st.header("⚡ Live Race Entry Point")
 input_method = st.radio("Choose how you want to input upcoming SIM race cards:", ["Option 1: Paste Raw Page Text", "Option 2: Upload HTML File(s)"])
 
 if input_method == "Option 1: Paste Raw Page Text":
-    pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=250, placeholder="Select all text on the SIM card, copy, and paste here...")
+    pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=300, placeholder="Select all text on the SIM card, copy, and paste here...")
     if pasted_text:
         process_raw_text(pasted_text, source_name="Pasted Text Input")
 
@@ -170,6 +168,5 @@ else:
         st.success(f"Loaded {len(uploaded_files)} files. Extracting variables...")
         for file in uploaded_files:
             file_content = file.read().decode("utf-8")
-            # Strip simple HTML boilerplate tags to expose the raw text strings for the pattern engine
             clean_html_text = re.sub(r"<[^>]*>", "\n", file_content)
             process_raw_text(clean_html_text, source_name=file.name)
