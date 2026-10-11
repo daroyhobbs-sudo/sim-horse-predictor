@@ -56,7 +56,10 @@ if uploaded_backup:
 # --- CORE PROCESSING FUNCTION ---
 def process_raw_text(text_content):
     try:
-        # 1. Parse Distance & Surface using flexible keyword scanning
+        # 1. Pre-clean the text: forcefully remove markdown bold symbols so lines start with '-' clean
+        text_content = text_content.replace("**", "")
+        
+        # Parse Distance & Surface using flexible keyword scanning
         race_dist = "7" 
         race_surf = "Dirt" 
         
@@ -78,9 +81,9 @@ def process_raw_text(text_content):
         post_position_counter = 1
         
         for line in lines:
-            line_str = line.strip().replace("**", "")
+            line_str = line.strip()
             
-            # Match any line starting with a dash that contains parenthetical state markers
+            # Match lines starting with a dash that contain parenthetical state markers
             if line_str.startswith("-") and "(" in line_str and ")" in line_str:
                 name_part = line_str.replace("-", "").strip()
                 current_horse = re.sub(r"\(.*?\)", "", name_part).strip()
@@ -92,6 +95,7 @@ def process_raw_text(text_content):
                 numbers = re.findall(r"\d+", clean_line)
                 
                 if len(numbers) >= 5:
+                    # In SIM layout: the second-to-last number is Peak, the last number is LifeFig
                     peak_val = int(numbers[-2])
                     life_val = int(numbers[-1])
                 else:
@@ -166,19 +170,12 @@ else:
             file_content = file.read().decode("utf-8", errors="ignore")
             
             # --- AGGRESSIVE CLEANING STRATEGY FOR HTML FILES ---
-            # Remove hidden scripts and styles that disrupt structural string reads
             file_content = re.sub(r"<script[^>]*>([\s\S]*?)</script>", " ", file_content, flags=re.IGNORECASE)
             file_content = re.sub(r"<style[^>]*>([\s\S]*?)</style>", " ", file_content, flags=re.IGNORECASE)
-            
-            # Swap structural HTML breaks and containers into clean plain text line splits
             file_content = re.sub(r"<(div|p|tr|br|li)[^>]*>", "\n", file_content, flags=re.IGNORECASE)
             
-            # Strip out all remaining HTML brackets completely
             clean_text = re.sub(r"<[^>]*>", " ", file_content)
-            
-            # Standardize and collapse broken spacing variants
             clean_text = re.sub(r"&nbsp;", " ", clean_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"[ \t]+", " ", clean_text)
             
-            # Send the isolated text directly to the model analyzer
             process_raw_text(clean_text)
