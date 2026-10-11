@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import json
-from bs4 import BeautifulSoup
 
 # Set page to wide mode for a clean data-heavy betting view
 st.set_page_config(layout="wide", page_title="SIM Horse Predictor")
@@ -27,26 +26,24 @@ else:
     history_df = pd.DataFrame()
 
 
-# --- SECTION 2: MAIN DASHBOARD & BATCH PROCESSING (.HTML) ---
+# --- SECTION 2: MAIN DASHBOARD & BATCH PROCESSING ---
 st.header("⚡ Fast-Batch Race Processing")
-st.write("Drag and drop your saved SIM .html race cards here to predict multiple races instantly.")
+st.write("Drag and drop or paste your saved SIM race data here to predict multiple races instantly.")
 
-# Multi-file uploader for HTML race pages
-uploaded_html_files = st.file_uploader(
-    "Upload SIM Race HTML cards", 
+# Multi-file uploader for race pages
+uploaded_files = st.file_uploader(
+    "Upload SIM Race cards", 
     accept_multiple_files=True, 
-    type=["html", "htm"]
+    type=["html", "htm", "txt"]
 )
 
-if uploaded_html_files:
-    st.success(f"Processing {len(uploaded_html_files)} HTML race card(s)...")
+if uploaded_files:
+    st.success(f"Processing {len(uploaded_files)} race card(s)...")
     
-    # Loop through each uploaded HTML file
-    for html_file in uploaded_html_files:
-        html_content = html_file.read().decode("utf-8")
-        soup = BeautifulSoup(html_content, "html.parser")
+    for file in uploaded_files:
+        file_content = file.read().decode("utf-8")
         
-        st.subheader(f"Results for: {html_file.name}")
+        st.subheader(f"Results for: {file.name}")
         st.write("File loaded successfully! Ready to insert parsing logic.")
 
 else:
