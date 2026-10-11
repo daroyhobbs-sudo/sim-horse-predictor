@@ -6,14 +6,13 @@ import re
 # Set wide layout for dense betting grids
 st.set_page_config(layout="wide", page_title="SIM Horse Predictor")
 
-st.title("🏇 SIM Horse Racing Fast-Paste Predictor")
+st.title("🏇 SIM Horse Racing High-Pace Predictor")
 
 # --- SECTION 1: SIDEBAR DATA STORAGE & TUNING ---
 st.sidebar.header("📁 Backup & History Dataset")
 uploaded_backup = st.sidebar.file_uploader("Upload your .json backup file", type=["json"])
 
 st.sidebar.header("⚙️ Model Weight Tuning")
-st.sidebar.write("Adjust calculation weights manually:")
 peak_weight = st.sidebar.slider("Peak Speed Rating Weight", 0.0, 1.0, 0.60, 0.05)
 life_weight = st.sidebar.slider("Lifetime Performance Weight", 0.0, 1.0, 0.40, 0.05)
 
@@ -62,58 +61,55 @@ pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=3
 
 if pasted_text:
     try:
-        # Strip out markdown symbols right away
-        clean_pasted = pasted_text.replace("**", "")
-        
         # 1. Parse Distance & Surface using flexible text scanning
         race_dist = "7" 
         race_surf = "Dirt" 
         
-        dist_match = re.search(r"(\d+)\s*furlongs", clean_pasted, re.IGNORECASE)
+        dist_match = re.search(r"(\d+)\s*furlongs", pasted_text, re.IGNORECASE)
         if dist_match:
             race_dist = dist_match.group(1)
             
-        if "turf" in clean_pasted.lower():
+        if "turf" in pasted_text.lower():
             race_surf = "Turf"
-        elif "all weather" in clean_pasted.lower() or "aw" in clean_pasted.lower():
+        elif "all weather" in pasted_text.lower() or "aw" in pasted_text.lower():
             race_surf = "AW"
             
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Match names strictly by catching lines ending with standard breeding indicators
-        # Example format: "- Deep Feeling (LA)" followed by a name on the next line or tab
-        # This regex matches the actual entry lines and ignores history note texts completely
-        matches = re.findall(r"-\s*([A-Za-z0-9\s\'\.\-]+?)\s*\([A-Z]{2}\)", clean_pasted)
+        # 2. Extract Horse Data Blocks via direct 'Life' signature lines
+        # This matches the exact name line block text sitting right above the text "Life X: "
+        horse_matches = re.finditer(r"-\s*([^\n\(]+)(?:\([A-Z]{2}\))?[\s\S]*?Life\s+\d+:\s*[^\n]+", pasted_text, re.IGNORECASE)
         
         calc_rows = []
         post_position_counter = 1
-        seen_horses = set()  # Filters out duplicate loop entries
+        seen_horses = set()
         
-        for h_name in matches:
-            h_name_clean = h_name.strip()
+        for match in horse_matches:
+            # Re-read full line block matching parameters carefully
+            full_match_text = match.group(0)
+            horse_raw_name = match.group(1).replace("**", "").replace("-", "").strip()
             
-            # Skip historical lines or duplicate processing traps
-            if h_name_clean in seen_horses or "Broke" in h_name_clean or len(h_name_clean) > 30:
+            # Clean up residual tab or line spacing clutter
+            horse_clean_name = horse_raw_name.split("\n").split("\t").strip()
+            
+            if horse_clean_name in seen_horses or len(horse_clean_name) > 30 or "Broke" in horse_clean_name:
                 continue
                 
-            # Find the specific "Life" line that belongs *strictly* to this horse entry block
-            pattern = re.escape(h_name_clean) + r"[\s\S]*?Life\s+\d+:\s*([^\n]+)"
-            metric_match = re.search(pattern, clean_pasted, re.IGNORECASE)
+            # Extract Peak and Life Figures out of the matched Life text block line
+            life_line_search = re.search(r"Life\s+\d+:\s*([^\n]+)", full_match_text, re.IGNORECASE)
             
             peak_val = 0
             life_val = 0
             
-            if metric_match:
-                metric_line = metric_match.group(1).replace(",", "").replace("$", "")
-                numbers = re.findall(r"\d+", metric_line)
+            if life_line_search:
+                metrics_text = life_line_search.group(1).replace(",", "").replace("$", "")
+                numbers = re.findall(r"\d+", metrics_text)
                 if len(numbers) >= 2:
-                    # In SIM layout: the second-to-last number is Peak, the last number is LifeFig
                     peak_val = int(numbers[-2])
                     life_val = int(numbers[-1])
             
-            # Only add to grid if it has realistic horse baseline metrics 
             if peak_val > 0 or life_val > 0:
-                seen_horses.add(h_name_clean)
+                seen_horses.add(horse_clean_name)
                 
                 # --- MODEL PREDICTION LOGIC ---
                 score = 0
@@ -136,7 +132,7 @@ if pasted_text:
                     
                 calc_rows.append({
                     "PP": post_position_counter,
-                    "Horse Name": h_name_clean,
+                    "Horse Name": horse_clean_name,
                     "Peak Rating": peak_val,
                     "Life Fig": life_val,
                     "Model Score": round(score, 1)
@@ -160,7 +156,7 @@ if pasted_text:
             
             st.dataframe(race_results_df, use_container_width=True, hide_index=True)
         else:
-            st.warning("Could not identify horse rows. Double check that your selection includes the lines with the horse names and 'Life' stats.")
+            st.warning("No valid horse data blocks identified. Make sure you copy the past performance records fully.")
             
     except Exception as parse_err:
         st.error(f"Error parsing race calculation grid: {parse_err}")
