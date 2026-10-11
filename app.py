@@ -63,7 +63,7 @@ pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=3
 if pasted_text:
     try:
         # 1. Parse Distance & Surface using flexible text scanning
-        race_dist = "5" 
+        race_dist = "7" 
         race_surf = "Dirt" 
         
         dist_match = re.search(r"(\d+)\s*furlongs", pasted_text, re.IGNORECASE)
@@ -75,12 +75,10 @@ if pasted_text:
         elif "all weather" in pasted_text.lower() or "aw" in pasted_text.lower():
             race_surf = "AW"
             
-        st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
+        st.subheader(f"官方 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Extract Horse Data Blocks via direct block separation
-        # Chop the text whenever we hit a horse indicator dash line
-        chunks = pasted_text.split("\n- ")
-        
+        # 2. Chop up text precisely at the horse delimiter dash marker
+        chunks = pasted_text.split("- ")
         calc_rows = []
         post_position_counter = 1
         
@@ -92,11 +90,17 @@ if pasted_text:
             if not chunk_lines:
                 continue
                 
-            # The first entry line of the block is always the horse name
-            raw_name = chunk_lines[0].replace("- ", "").replace("**", "")
+            # Isolate the clean horse name block line
+            raw_name = chunk_lines[0].replace("**", "")
+            # Split tabs out cleanly to avoid list manipulation object crashes
+            if "\t" in raw_name:
+                raw_name = raw_name.split("\t")[0]
             clean_name = re.sub(r"\(.*?\)", "", raw_name).strip()
             
-            # Extract Peak Rating, Life Figures, and check for workout clock strings
+            # Skip invalid lines that are part of old race descriptions
+            if "Broke" in clean_name or len(clean_name) > 30 or not clean_name:
+                continue
+                
             peak_val = 0
             life_val = 0
             workout_seconds = []
@@ -109,7 +113,7 @@ if pasted_text:
                         peak_val = int(numbers[-2])
                         life_val = int(numbers[-1])
                 
-                # Scan lines for workout timestamps like 0:23.23 or 1:29.22
+                # Scan lines for workout timestamps like 0:35.09 or 0:23.23
                 clocks = re.findall(r"\d+:\d{2}\.\d{2}", line)
                 for clock in clocks:
                     minutes, seconds = clock.split(":")
@@ -119,7 +123,7 @@ if pasted_text:
             # --- MODEL SCORE ENGINE ---
             score = 0
             
-            # Strategy A: If the horse has real racing history, grade his speed figures
+            # Route A: For experienced horses with real historical figures
             if peak_val > 0 or life_val > 0:
                 if not history_df.empty:
                     similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
@@ -137,20 +141,18 @@ if pasted_text:
                 else:
                     score = (peak_val * peak_weight) + (life_val * life_weight)
             
-            # Strategy B: If it's a raw unrun 2-year-old maiden, calculate speed via workouts
+            # Route B: For raw unrun horses, grade speed via workout clock timings
             else:
                 if workout_seconds:
-                    # Capture his absolute fastest workout time as a proxy baseline 
                     fastest_work = min(workout_seconds)
-                    # Convert raw workout seconds into a standardized rating index scale out of 100
                     score = max(10, 100 - (fastest_work * 1.5)) 
                 else:
-                    score = 25.0  # Safe default middle baseline index for unknown layout values
+                    score = 25.0  # Fallback middle index
                     
             calc_rows.append({
                 "PP": post_position_counter,
                 "Horse Name": clean_name,
-                "Peak Rating": peak_val if peak_val > 0 else "Unrated (Maiden)",
+                "Peak Rating": peak_val if peak_val > 0 else "Maiden (Unrated)",
                 "Life Fig": life_val if life_val > 0 else "Unrated",
                 "Model Score": round(score, 1)
             })
