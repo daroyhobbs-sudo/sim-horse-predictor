@@ -17,7 +17,6 @@ backup_file = st.sidebar.file_uploader("Upload your .json backup file", type=["j
 if backup_file:
     try:
         json_data = json.load(backup_file)
-        # Attempt to structure the JSON into a readable data frame
         history_df = pd.DataFrame(json_data.get("races", json_data)) 
         st.sidebar.success(f"✅ Loaded {len(history_df)} races from backup!")
     except Exception as e:
@@ -48,18 +47,7 @@ if uploaded_html_files:
         soup = BeautifulSoup(html_content, "html.parser")
         
         st.subheader(f"Results for: {html_file.name}")
-        
-        # A completely safe layout with clear lists and no structural syntax issues
-        mock_data = {
-            "Post Position":,
-            "Horse Name": ["Secretariat Reborn", "Galloping Ghost", "Mudder Superior", "Speedy Gonzales"],
-            "Morning Line": ["3/1", "5/2", "12/1", "20/1"],
-            "Win Percentage": ["54%", "22%", "18%", "6%"],
-            "Bet Signal": ["🔥 VALUE BET", "PASS", "PASS", "PASS"]
-        }
-        
-        mock_results = pd.DataFrame(mock_data)
-        st.dataframe(mock_results, use_container_width=True)
+        st.write("File loaded successfully! Ready to insert parsing logic.")
 
 else:
     st.info("Waiting for race cards. Drop your SIM past performances above to get instant predictions.")
