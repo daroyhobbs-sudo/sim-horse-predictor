@@ -13,7 +13,7 @@ st.sidebar.header("📁 Backup & History Dataset")
 uploaded_backup = st.sidebar.file_uploader("Upload your .json backup file", type=["json"])
 
 st.sidebar.header("⚙️ Model Weight Tuning")
-st.sidebar.write("Adjust calculations weighting weights manually:")
+st.sidebar.write("Adjust calculation weights manually:")
 peak_weight = st.sidebar.slider("Peak Speed Rating Weight", 0.0, 1.0, 0.60, 0.05)
 life_weight = st.sidebar.slider("Lifetime Performance Weight", 0.0, 1.0, 0.40, 0.05)
 
@@ -33,7 +33,7 @@ if uploaded_backup:
             winners = r.get("result", [])
             
             if winners and isinstance(winners, list) and len(winners) > 0:
-                actual_winner_pp = winners
+                actual_winner_pp = winners[0]
                 valid_race_count += 1
                 
                 for h in r.get("horses", []):
@@ -62,81 +62,78 @@ pasted_text = st.text_area("Paste Raw SIM Past Performances text here", height=3
 
 if pasted_text:
     try:
-        # Clean markdown bold markers out if they exist
-        pasted_text = pasted_text.replace("**", "")
+        # Strip out formatting obstacles right away
+        clean_pasted = pasted_text.replace("**", "")
         
         # 1. Parse Distance & Surface using flexible text scanning
         race_dist = "7" 
         race_surf = "Dirt" 
         
-        dist_match = re.search(r"(\d+)\s*furlongs", pasted_text, re.IGNORECASE)
+        dist_match = re.search(r"(\d+)\s*furlongs", clean_pasted, re.IGNORECASE)
         if dist_match:
             race_dist = dist_match.group(1)
             
-        if "turf" in pasted_text.lower():
+        if "turf" in clean_pasted.lower():
             race_surf = "Turf"
-        elif "all weather" in pasted_text.lower() or "aw" in pasted_text.lower():
+        elif "all weather" in clean_pasted.lower() or "aw" in clean_pasted.lower():
             race_surf = "AW"
             
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Sequential line reader loop
-        lines = pasted_text.split("\n")
+        # 2. Extract Horse blocks by searching anywhere for the pattern "- Horse Name (STATE)"
+        # This matches the dash and name regardless of hidden leading characters or spaces
+        horse_headers = re.findall(r"-\s*([A-Za-z0-9\s\'\.\-]+?)\s*\([A-Z]{2}\)", clean_pasted)
+        
         calc_rows = []
-        current_horse = None
         post_position_counter = 1
         
-        for line in lines:
-            line_str = line.strip()
+        for h_name in horse_headers:
+            h_name_clean = h_name.strip()
             
-            # Identify horse names: lines starting with '-' that contain parentheses for breeding states
-            if line_str.startswith("-") and "(" in line_str and ")" in line_str:
-                name_part = line_str.replace("-", "").strip()
-                current_horse = re.sub(r"\(.*?\)", "", name_part).strip()
-                continue
-                
-            # Grab performance variables whenever we hit a line containing 'Life '
-            if current_horse and "Life " in line_str:
-                # Clean currency punctuation symbols out to keep regex clean
-                clean_line = line_str.replace(",", "").replace("$", "")
-                numbers = re.findall(r"\d+", clean_line)
-                
+            # Find the specific "Life" line that belongs to this horse inside the giant text block
+            # We match the name of the horse, then look ahead for its unique "Life" ratings row
+            pattern = re.escape(h_name_clean) + r"[\s\S]*?Life\s+\d+:\s*[^\n]+"
+            metric_match = re.search(pattern, clean_pasted, re.IGNORECASE)
+            
+            peak_val = 0
+            life_val = 0
+            
+            if metric_match:
+                metric_line = metric_match.group(0).replace(",", "").replace("$", "")
+                # Find all isolated integers sitting inside that horse's metric string
+                numbers = re.findall(r"\d+", metric_line)
                 if len(numbers) >= 5:
                     # In SIM layout: the second-to-last number is Peak, the last number is LifeFig
                     peak_val = int(numbers[-2])
                     life_val = int(numbers[-1])
-                else:
-                    peak_val = 0
-                    life_val = 0
+            
+            # --- MODEL PREDICTION LOGIC ---
+            score = 0
+            if not history_df.empty:
+                similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
+                
+                if not similar_races.empty:
+                    avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
+                    avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
                     
-                # --- MODEL PREDICTION LOGIC ---
-                score = 0
-                if not history_df.empty:
-                    similar_races = history_df[(history_df["dist"].astype(str) == str(race_dist)) & (history_df["surf"] == race_surf)]
+                    avg_peak_winner = 0 if pd.isna(avg_peak_winner) else avg_peak_winner
+                    avg_life_winner = 0 if pd.isna(avg_life_winner) else avg_life_winner
                     
-                    if not similar_races.empty:
-                        avg_peak_winner = similar_races[similar_races["is_winner"] == 1]["peak"].mean()
-                        avg_life_winner = similar_races[similar_races["is_winner"] == 1]["lifeFig"].mean()
-                        
-                        avg_peak_winner = 0 if pd.isna(avg_peak_winner) else avg_peak_winner
-                        avg_life_winner = 0 if pd.isna(avg_life_winner) else avg_life_winner
-                        
-                        if peak_val >= avg_peak_winner and avg_peak_winner > 0: score += (60 * peak_weight)
-                        if life_val >= avg_life_winner and avg_life_winner > 0: score += (40 * life_weight)
-                    else:
-                        score = (peak_val * peak_weight) + (life_val * life_weight)
+                    if peak_val >= avg_peak_winner and avg_peak_winner > 0: score += (60 * peak_weight)
+                    if life_val >= avg_life_winner and avg_life_winner > 0: score += (40 * life_weight)
                 else:
                     score = (peak_val * peak_weight) + (life_val * life_weight)
-                    
-                calc_rows.append({
-                    "PP": post_position_counter,
-                    "Horse Name": current_horse,
-                    "Peak Rating": peak_val,
-                    "Life Fig": life_val,
-                    "Model Score": round(score, 1)
-                })
-                post_position_counter += 1
-                current_horse = None # Reset state engine token
+            else:
+                score = (peak_val * peak_weight) + (life_val * life_weight)
+                
+            calc_rows.append({
+                "PP": post_position_counter,
+                "Horse Name": h_name_clean,
+                "Peak Rating": peak_val,
+                "Life Fig": life_val,
+                "Model Score": round(score, 1)
+            })
+            post_position_counter += 1
                 
         if calc_rows:
             race_results_df = pd.DataFrame(calc_rows)
@@ -155,7 +152,7 @@ if pasted_text:
             
             st.dataframe(race_results_df, use_container_width=True, hide_index=True)
         else:
-            st.warning("Could not identify horse blocks. Ensure you copy the complete page text starting from the race conditions header.")
+            st.warning("Could not identify horse rows. Double check that your selection includes the lines with the horse names and 'Life' stats.")
             
     except Exception as parse_err:
         st.error(f"Error parsing race calculation grid: {parse_err}")
