@@ -71,7 +71,7 @@ def process_raw_text(text_content):
             
         st.subheader(f"📊 Live Prediction Grid ({race_dist} Furlongs, {race_surf})")
         
-        # 2. Sequential line tokenizer loop
+        # 2. Split text content cleanly into lines
         lines = text_content.split("\n")
         calc_rows = []
         current_horse = None
@@ -80,21 +80,18 @@ def process_raw_text(text_content):
         for line in lines:
             line_str = line.strip().replace("**", "")
             
-            # Identify horse names: lines starting with '-' that contain parentheses for breeding states
+            # Match any line starting with a dash that contains parenthetical state markers
             if line_str.startswith("-") and "(" in line_str and ")" in line_str:
-                # Extract clean horse name
                 name_part = line_str.replace("-", "").strip()
                 current_horse = re.sub(r"\(.*?\)", "", name_part).strip()
                 continue
                 
-            # Grab performance variables whenever we hit a line containing 'Life '
+            # Pull ratings whenever hitting a record row containing the word 'Life'
             if current_horse and "Life " in line_str:
-                # Strip symbols and isolate the trailing numerical values
                 clean_line = line_str.replace(",", "").replace("$", "")
                 numbers = re.findall(r"\d+", clean_line)
                 
                 if len(numbers) >= 5:
-                    # In SIM layout: the second-to-last number is Peak, the last number is LifeFig
                     peak_val = int(numbers[-2])
                     life_val = int(numbers[-1])
                 else:
@@ -128,7 +125,7 @@ def process_raw_text(text_content):
                     "Model Score": round(score, 1)
                 })
                 post_position_counter += 1
-                current_horse = None # Reset token state for next entry
+                current_horse = None 
                 
         if calc_rows:
             race_results_df = pd.DataFrame(calc_rows)
@@ -147,7 +144,7 @@ def process_raw_text(text_content):
             
             st.dataframe(race_results_df, use_container_width=True, hide_index=True)
         else:
-            st.warning("Could not identify horse blocks. Make sure you select the past performance history lines containing 'Life X:'.")
+            st.warning("Could not identify horse blocks. Make sure your input contains the performance lines starting with '- Name' and 'Life'.")
             
     except Exception as parse_err:
         st.error(f"Error parsing race calculation grid: {parse_err}")
@@ -165,8 +162,23 @@ if input_method == "Option 1: Paste Raw Page Text":
 else:
     uploaded_files = st.file_uploader("Upload SIM Race HTML files", accept_multiple_files=True, type=["html", "htm", "txt"])
     if uploaded_files:
-        st.success(f"Loaded {len(uploaded_files)} files. Extracting variables...")
         for file in uploaded_files:
-            file_content = file.read().decode("utf-8")
-            clean_html_text = re.sub(r"<[^>]*>", "\n", file_content)
-            process_raw_text(clean_html_text)
+            file_content = file.read().decode("utf-8", errors="ignore")
+            
+            # --- AGGRESSIVE CLEANING STRATEGY FOR HTML FILES ---
+            # Remove hidden scripts and styles that disrupt structural string reads
+            file_content = re.sub(r"<script[^>]*>([\s\S]*?)</script>", " ", file_content, flags=re.IGNORECASE)
+            file_content = re.sub(r"<style[^>]*>([\s\S]*?)</style>", " ", file_content, flags=re.IGNORECASE)
+            
+            # Swap structural HTML breaks and containers into clean plain text line splits
+            file_content = re.sub(r"<(div|p|tr|br|li)[^>]*>", "\n", file_content, flags=re.IGNORECASE)
+            
+            # Strip out all remaining HTML brackets completely
+            clean_text = re.sub(r"<[^>]*>", " ", file_content)
+            
+            # Standardize and collapse broken spacing variants
+            clean_text = re.sub(r"&nbsp;", " ", clean_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r"[ \t]+", " ", clean_text)
+            
+            # Send the isolated text directly to the model analyzer
+            process_raw_text(clean_text)
