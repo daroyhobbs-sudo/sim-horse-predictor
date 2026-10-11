@@ -49,15 +49,16 @@ if uploaded_html_files:
         
         st.subheader(f"Results for: {html_file.name}")
         
-        # --- PLACEHOLDER FOR BET SIGNAL OUTPUT ---
-        # This builds a clean, fast interactive table layout
-        mock_results = pd.DataFrame({
-            "PP":,
-            "Horse": ["Secretariat Reborn", "Galloping Ghost", "Mudder Superior", "Speedy Gonzales"],
-            "ML Odds": ["3/1", "5/2", "12/1", "20/1"],
-            "Model Win %": ["54%", "22%", "18%", "6%"],
+        # A completely safe placeholder table layout with no empty values or stray commas
+        mock_data = {
+            "Post Position":,
+            "Horse Name": ["Secretariat Reborn", "Galloping Ghost", "Mudder Superior", "Speedy Gonzales"],
+            "Morning Line": ["3/1", "5/2", "12/1", "20/1"],
+            "Win Percentage": ["54%", "22%", "18%", "6%"],
             "Bet Signal": ["🔥 VALUE BET", "PASS", "PASS", "PASS"]
-        })
+        }
+        
+        mock_results = pd.DataFrame(mock_data)
         st.dataframe(mock_results, use_container_width=True)
 
 else:
